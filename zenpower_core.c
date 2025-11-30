@@ -1,7 +1,8 @@
 /*
- * Zenpower - Driver for reading temperature, voltage, current and power for AMD 17h CPUs
+ * Zenpower - Driver for reading temperature, voltage, current and power for AMD Zen family CPUs
  *
  * Copyright (c) 2018-2021 Anthony Wang
+ * Copyright (c) 2025 Matt Keenan - Zen 5 support and multi-file refactoring
  *
  * This driver is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License; either
@@ -57,7 +58,7 @@ static u16 amd_pci_dev_to_node_id(struct pci_dev *pdev)
 MODULE_DESCRIPTION("AMD ZEN family CPU Sensors Driver");
 MODULE_AUTHOR("Anthony Wang");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.5.0");
 
 static bool zen1_calc;
 module_param(zen1_calc, bool, 0);
