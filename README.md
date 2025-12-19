@@ -43,15 +43,7 @@ sudo make dkms-install
 
 ### Installation for Arch Linux
 
-**Note:** The existing [AUR package](https://aur.archlinux.org/packages/zenpower3-dkms/) is for zenpower3, not zenpower5. Use the manual installation method above until a zenpower5 AUR package is available.
-
-```sh
-sudo pacman -S dkms git base-devel linux-headers
-cd ~
-git clone https://github.com/mattkeenan/zenpower5.git
-cd zenpower5
-sudo make dkms-install
-```
+You can install the [AUR package](https://aur.archlinux.org/packages/zenpower5-dkms-git).
 
 ### Installation for Fedora
 
