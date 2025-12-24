@@ -102,6 +102,11 @@ MODULE_PARM_DESC(zen1_calc, "Set to 1 to use ZEN1 calculation");
 #define PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3	0x12bb
 #endif
 
+/* Zen 5 Granite Ridge (Desktop) */
+#ifndef PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3
+#define PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3    0x14e3
+#endif
+
 /* F17H_M01H_SVI, should be renamed to something generic I think... */
 
 #define F17H_M01H_REPORTED_TEMP_CTRL        0x00059800
@@ -261,6 +266,15 @@ static const struct zenpower_model_config model_configs[] = {
 	  .num_ccds = 2,
 	  .flags = ZEN_CFG_ZEN2_CALC,
 	  .name = "Zen3 APU (19h/50h)" },
+
+	/* Family 1Ah - Zen5 Granite Ridge (Desktop) */
+	{ .family = 0x1a, .model = 0x44,
+	  .svi_core_addr = F1AH_M70H_SVI_TEL_PLANE0,
+	  .svi_soc_addr = F1AH_M70H_SVI_TEL_PLANE1,
+	  .ccd_temp_base = F1AH_M70H_CCD_TEMP_BASE,
+	  .num_ccds = 2,
+	  .flags = ZEN_CFG_ZEN2_CALC | ZEN_CFG_RAPL | ZEN_CFG_IS_ZEN5 | ZEN_CFG_NO_RAPL_CORE,
+	  .name = "Zen5 Granite Ridge (1Ah/44h)" },
 
 	/* Family 1Ah - Zen5 */
 	{ .family = 0x1a, .model = 0x70,
@@ -861,6 +875,7 @@ static const struct pci_device_id zenpower_id_table[] = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_19H_M40H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_19H_M50H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3) },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, zenpower_id_table);
