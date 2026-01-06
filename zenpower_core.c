@@ -460,9 +460,15 @@ static int zenpower_read(struct device *dev, enum hwmon_sensor_types type,
 						zenpower_svi2_get_soc_current(plane, data->zen2);
 					break;
 				case hwmon_power:
-					*val = (channel == 0) ?
-						zenpower_svi2_get_core_current(plane, data->zen2) * zenpower_svi2_plane_to_vcc(plane):
-						zenpower_svi2_get_soc_current(plane, data->zen2) * zenpower_svi2_plane_to_vcc(plane);
+					if (channel == 0) {
+						u64 p = (u64)zenpower_svi2_get_core_current(plane, data->zen2) *
+							 (u64)zenpower_svi2_plane_to_vcc(plane);
+						*val = (long)p;
+					} else {
+						u64 p = (u64)zenpower_svi2_get_soc_current(plane, data->zen2) *
+							 (u64)zenpower_svi2_plane_to_vcc(plane);
+						*val = (long)p;
+					}
 					break;
 				default:
 					break;

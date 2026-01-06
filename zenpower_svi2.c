@@ -18,10 +18,17 @@
 u32 zenpower_svi2_plane_to_vcc(u32 plane)
 {
 	u32 vdd_cor;
+	s32 v;
 
 	vdd_cor = (plane >> 16) & 0xff;
 
-	return 1550 - ((625 * vdd_cor) / 100);
+	v = 1550 - (s32)((625 * vdd_cor) / 100);
+	if (v < 0)
+		v = 0;
+	else if (v > 2000)
+		v = 2000;
+
+	return (u32)v;
 }
 
 /*

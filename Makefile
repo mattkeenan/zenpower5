@@ -18,6 +18,12 @@ KERNEL_BUILD	:= $(KERNEL_MODULES)/build
 endif
 endif
 
+KERNEL_AUTO_CONF := $(KERNEL_BUILD)/include/config/auto.conf
+VMLINUX_CC_IS_CLANG := $(shell grep -qs '^CONFIG_CC_IS_CLANG=y' $(KERNEL_AUTO_CONF) && echo 1)
+ifeq ($(VMLINUX_CC_IS_CLANG),1)
+LLVM ?= 1
+endif
+
 obj-m	:= $(patsubst %,%.o,zenpower)
 obj-ko	:= $(patsubst %,%.ko,zenpower)
 zenpower-objs := zenpower_core.o zenpower_svi2.o zenpower_rapl.o zenpower_temp.o
@@ -27,10 +33,10 @@ zenpower-objs := zenpower_core.o zenpower_svi2.o zenpower_rapl.o zenpower_temp.o
 all: modules
 
 modules:
-	@$(MAKE) -C $(KERNEL_BUILD) M=$(CURDIR) modules
+	@$(MAKE) -C $(KERNEL_BUILD) M=$(CURDIR) $(if $(LLVM),LLVM=$(LLVM)) modules
 
 clean:
-	@$(MAKE) -C $(KERNEL_BUILD) M=$(CURDIR) clean
+	@$(MAKE) -C $(KERNEL_BUILD) M=$(CURDIR) $(if $(LLVM),LLVM=$(LLVM)) clean
 
 dkms-install:
 	dkms --version >> /dev/null
