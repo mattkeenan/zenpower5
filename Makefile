@@ -2,8 +2,6 @@ VERSION         := 0.5.0
 TARGET          := $(shell uname -r)
 DKMS_ROOT_PATH  := /usr/src/zenpower-$(VERSION)
 
-KBUILD_CFLAGS   += -Wimplicit-fallthrough=3
-
 KERNEL_MODULES	:= /lib/modules/$(TARGET)
 
 ifneq ("","$(wildcard /usr/src/linux-headers-$(TARGET)/*)")
@@ -22,6 +20,9 @@ KERNEL_AUTO_CONF := $(KERNEL_BUILD)/include/config/auto.conf
 VMLINUX_CC_IS_CLANG := $(shell grep -qs '^CONFIG_CC_IS_CLANG=y' $(KERNEL_AUTO_CONF) && echo 1)
 ifeq ($(VMLINUX_CC_IS_CLANG),1)
 LLVM ?= 1
+KBUILD_CFLAGS   += -Wimplicit-fallthrough
+else
+KBUILD_CFLAGS   += -Wimplicit-fallthrough=3
 endif
 
 obj-m	:= $(patsubst %,%.o,zenpower)
