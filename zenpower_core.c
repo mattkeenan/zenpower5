@@ -102,6 +102,10 @@ MODULE_PARM_DESC(zen1_calc, "Set to 1 to use ZEN1 calculation");
 #define PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3	0x12bb
 #endif
 
+#ifndef PCI_DEVICE_ID_AMD_1AH_M60H_DF_F3
+#define PCI_DEVICE_ID_AMD_1AH_M60H_DF_F3    0x124b
+#endif
+
 /* Zen 5 Granite Ridge (Desktop) */
 #ifndef PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3
 #define PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3    0x14e3
@@ -284,6 +288,15 @@ static const struct zenpower_model_config model_configs[] = {
 	  .num_ccds = 8,
 	  .flags = ZEN_CFG_ZEN2_CALC | ZEN_CFG_RAPL | ZEN_CFG_IS_ZEN5 | ZEN_CFG_NO_RAPL_CORE,
 	  .name = "Zen5 Strix Halo (1Ah/70h)" },
+
+	  /* Family 1Ah - Zen5 Ryzen AI 7 350 */
+	{ .family = 0x1a, .model = 0x60,
+	  .svi_core_addr = F1AH_M70H_SVI_TEL_PLANE0,
+	  .svi_soc_addr = F1AH_M70H_SVI_TEL_PLANE1,
+	  .ccd_temp_base = F1AH_M70H_CCD_TEMP_BASE,
+	  .num_ccds = 0,
+	  .flags = ZEN_CFG_ZEN2_CALC | ZEN_CFG_RAPL | ZEN_CFG_IS_ZEN5 | ZEN_CFG_NO_RAPL_CORE,
+.	  name = "Zen5 Krackan Point (1Ah/60h)" },
 
 	{ } /* sentinel - must be last */
 };
@@ -882,6 +895,7 @@ static const struct pci_device_id zenpower_id_table[] = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_19H_M50H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3) },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M60H_DF_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, zenpower_id_table);
