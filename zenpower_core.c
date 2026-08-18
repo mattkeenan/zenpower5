@@ -46,6 +46,10 @@
 #include <asm/amd_nb.h>
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0)
+#include <asm/cpuid/api.h>
+#endif
+
 #include "zenpower.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0) /* asm/amd_node.h */
