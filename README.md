@@ -19,7 +19,7 @@ This is a structural update to the [zenpower3](https://github.com/AliEmreSenel/z
 - **Zen+** (Family 17h, Model 08h, 18h) - Ryzen 2000 APU series
 - **Zen 2** (Family 17h, Model 31h, 60h, 71h) - Ryzen 3000 series, Threadripper 3000, EPYC 7002
 - **Zen 3** (Family 19h, Model 00h, 01h, 21h, 50h) - Ryzen 5000 series, Threadripper Pro, EPYC 7003
-- **Zen 5** (Family 1Ah, Model 70h-7Fh) - Strix Halo (Ryzen AI Max+)
+- **Zen 5** (Family 1Ah, Model 24h, 70h-7Fh) - Strix Halo (Ryzen AI Max+), Strix Point (Ryzen AI 300, Z2 Extreme); Strix Point additionally exposes per-core temperatures/voltages, SoC power and GFX voltage/temperature/current via the SMU PM table (SVI3 voltage/current and per-CCD SMN layout not supported on Zen 5 mobile; CPU/core clocks not exposed - hwmon has no frequency sensor type)
 
 ## Installation
 
@@ -100,6 +100,7 @@ Zenpower5 uses a multi-file backend architecture:
 - **zenpower_core.c** - Core driver framework, hwmon interface, CPU detection
 - **zenpower_svi2.c** - SVI2 telemetry backend (voltage, current, power for Zen 1-3)
 - **zenpower_rapl.c** - RAPL MSR backend (power monitoring for Zen 5)
+- **zenpower_smu.c** - SMU PM table backend (per-core/SoC/GFX sensors for Strix Point)
 - **zenpower_temp.c** - Temperature monitoring backend (all generations)
 - **zenpower.h** - Shared data structures and function prototypes
 

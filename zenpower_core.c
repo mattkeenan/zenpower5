@@ -40,6 +40,13 @@
 #include <linux/pci.h>
 #include <asm/msr.h>
 
+/* cpuid_ecx(): asm/processor.h (pre-6.13) -> asm/cpuid.h -> asm/cpuid/api.h */
+#if __has_include(<asm/cpuid/api.h>)
+#include <asm/cpuid/api.h>
+#elif __has_include(<asm/cpuid.h>)
+#include <asm/cpuid.h>
+#endif
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
 #include <asm/amd/nb.h>
 #else
@@ -58,7 +65,7 @@ static u16 amd_pci_dev_to_node_id(struct pci_dev *pdev)
 MODULE_DESCRIPTION("AMD ZEN family CPU Sensors Driver");
 MODULE_AUTHOR("Anthony Wang");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("0.5.0");
+MODULE_VERSION("0.5.2");
 
 static bool zen1_calc;
 module_param(zen1_calc, bool, 0);
@@ -100,6 +107,11 @@ MODULE_PARM_DESC(zen1_calc, "Set to 1 to use ZEN1 calculation");
 
 #ifndef PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3
 #define PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3	0x12bb
+#endif
+
+/* Zen5 Strix Point / Krackan Point mobile APUs (1Ah M20h DF F3) */
+#ifndef PCI_DEVICE_ID_AMD_1AH_M20H_DF_F3
+#define PCI_DEVICE_ID_AMD_1AH_M20H_DF_F3	0x16fb
 #endif
 
 /* Zen 5 Granite Ridge (Desktop) */
@@ -285,6 +297,20 @@ static const struct zenpower_model_config model_configs[] = {
 	  .flags = ZEN_CFG_ZEN2_CALC | ZEN_CFG_RAPL | ZEN_CFG_IS_ZEN5 | ZEN_CFG_NO_RAPL_CORE,
 	  .name = "Zen5 Strix Halo (1Ah/70h)" },
 
+	/* Family 1Ah - Zen5 Strix Point (mobile APU, HX 370 / AI 300, Z2
+	 * Extreme; Krackan Point 60h/68h likely identical but untested).
+	 * Zen5 mobile uses SVI3, so SVI2 plane reads are garbage (see
+	 * upstream issue #10 on Strix Halo), and the per-CCD SMN layout
+	 * is not validated on this silicon: expose Tctl + package RAPL,
+	 * plus per-core/SoC/GFX sensors from the SMU PM table. */
+	{ .family = 0x1a, .model = 0x24,
+	  .svi_core_addr = 0,
+	  .svi_soc_addr = 0,
+	  .ccd_temp_base = F1AH_M70H_CCD_TEMP_BASE,
+	  .num_ccds = 0,
+	  .flags = ZEN_CFG_ZEN2_CALC | ZEN_CFG_RAPL | ZEN_CFG_IS_ZEN5 | ZEN_CFG_NO_RAPL_CORE | ZEN_CFG_SMU_PM_TABLE,
+	  .name = "Zen5 Strix Point (1Ah/24h)" },
+
 	{ } /* sentinel - must be last */
 };
 
@@ -299,13 +325,18 @@ static umode_t zenpower_is_visible(const void *rdata,
 
 	switch (type) {
 		case hwmon_temp:
-			if (channel >= 2 && data->ccd_visible[channel-2] == false) // Tccd1-8
+			if (channel >= 2 && channel <= 9 && // Tccd1-8
+			    data->ccd_visible[channel-2] == false)
+				return 0;
+			if (channel >= 10 && !data->smu_available) // Tcore1-12, Tgfx (SMU PM)
 				return 0;
 			break;
 
 		case hwmon_curr:
 			/* Zen5 uses SVI3 (not SVI2), which is not supported yet */
-			if (data->zen5)
+			if (data->zen5 && channel < 2)
+				return 0;
+			if (channel >= 2 && !data->smu_available) // Icore, Igfx (SMU PM)
 				return 0;
 			if (data->amps_visible == false)
 				return 0;
@@ -316,22 +347,32 @@ static umode_t zenpower_is_visible(const void *rdata,
 			break;
 
 		case hwmon_power:
+			if (channel == 2 && !data->smu_available) // SMU_P_SoC (SMU PM)
+				return 0;
 			if (data->amps_visible == false)
 				return 0;
-			if (channel == 0 && data->svi_core_addr == 0)
-				return 0;
-			if (channel == 1 && data->svi_soc_addr == 0)
-				return 0;
-			/* Hide Core power if unavailable/meaningless (e.g., Strix Halo APU) */
-			if (data->no_rapl_core && channel == 1)
-				return 0;
+			if (data->rapl) {
+				/* RAPL channels: [0]=package, [1]=core */
+				/* Hide Core power if unavailable/meaningless (e.g., Strix Halo APU) */
+				if (channel == 1 && data->no_rapl_core)
+					return 0;
+			} else {
+				if (channel == 0 && data->svi_core_addr == 0)
+					return 0;
+				if (channel == 1 && data->svi_soc_addr == 0)
+					return 0;
+				if (data->no_rapl_core && channel == 1)
+					return 0;
+			}
 			break;
 
 		case hwmon_in:
 			if (channel == 0)	// fake item to align different indexing,
 				return 0;		// see note at zenpower_info
 			/* Zen5 uses SVI3 (not SVI2), which is not supported yet */
-			if (data->zen5)
+			if (data->zen5 && channel < 3)
+				return 0;
+			if (channel >= 3 && !data->smu_available) // Vcore, Vcore1-12, Vgfx (SMU PM)
 				return 0;
 			if (channel == 1 && data->svi_core_addr == 0)
 				return 0;
@@ -395,10 +436,17 @@ static int zenpower_read(struct device *dev, enum hwmon_sensor_types type,
 							*val = zenpower_temp_get_ctl(data);
 							break;
 						case 2 ... 9: // Tccd1-8
-							if (data->zen5) {
-								*val = zenpower_temp_get_ccd(data, F1AH_M70H_CCD_TEMP(channel-2));
-							} else {
-								*val = zenpower_temp_get_ccd(data, F17H_M70H_CCD_TEMP(channel-2));
+							*val = zenpower_temp_get_ccd(data,
+									data->ccd_temp_base + ((channel-2) * 4));
+							break;
+						case 10 ... 21: // Tcore1-12 (SMU PM)
+						case 22: // Tgfx (SMU PM)
+							{
+								long v = zenpower_smu_read_temp(data,
+										(channel <= 21) ? channel - 10 : 12);
+								if (v < 0)
+									return (int)v;
+								*val = v;
 							}
 							break;
 						default:
@@ -420,6 +468,13 @@ static int zenpower_read(struct device *dev, enum hwmon_sensor_types type,
 
 		// Voltage
 		case hwmon_in:
+			if (channel >= 3) { // Vcore1-12, Vgfx (SMU PM)
+				long v = zenpower_smu_read_in(data, channel - 3);
+				if (v < 0)
+					return (int)v;
+				*val = v;
+				break;
+			}
 			if (channel == 0)
 				return -EOPNOTSUPP;
 			channel -= 1;	// hwmon_in have different indexing, see note at zenpower_info
@@ -432,8 +487,25 @@ static int zenpower_read(struct device *dev, enum hwmon_sensor_types type,
 				return -EOPNOTSUPP;
 			}
 
-			/* Zen5 uses RAPL for power monitoring (SVI3 not supported yet) */
-			if (type == hwmon_power && data->zen5) {
+			/* SMU PM current channel (Strix Point: Igfx) */
+			if (type == hwmon_curr && channel >= 2) {
+				long v = zenpower_smu_read_curr(data, channel - 2);
+				if (v < 0)
+					return (int)v;
+				*val = v;
+				break;
+			}
+
+			/* RAPL-based power monitoring (Zen4/Zen5; SVI2/SVI3 readout unavailable) */
+			if (type == hwmon_power && data->rapl) {
+				/* SMU PM SoC power channel (Strix Point) */
+				if (channel == 2) {
+					long v = zenpower_smu_read_power(data, 0);
+					if (v < 0)
+						return (int)v;
+					*val = v;
+					break;
+				}
 				return zenpower_rapl_read_power(data, channel, val);
 			}
 
@@ -482,7 +554,7 @@ static int zenpower_read(struct device *dev, enum hwmon_sensor_types type,
 	return 0;
 }
 
-static const char *zenpower_temp_label[][10] = {
+static const char *zenpower_temp_label[][23] = {
 	{
 		"Tdie",
 		"Tctl",
@@ -494,6 +566,19 @@ static const char *zenpower_temp_label[][10] = {
 		"Tccd6",
 		"Tccd7",
 		"Tccd8",
+		"Tcore1",
+		"Tcore2",
+		"Tcore3",
+		"Tcore4",
+		"Tcore5",
+		"Tcore6",
+		"Tcore7",
+		"Tcore8",
+		"Tcore9",
+		"Tcore10",
+		"Tcore11",
+		"Tcore12",
+		"Tgfx",
 	},
 	{
 		"cpu0 Tdie",
@@ -506,6 +591,19 @@ static const char *zenpower_temp_label[][10] = {
 		"cpu0 Tccd6",
 		"cpu0 Tccd7",
 		"cpu0 Tccd8",
+		"cpu0 Tcore1",
+		"cpu0 Tcore2",
+		"cpu0 Tcore3",
+		"cpu0 Tcore4",
+		"cpu0 Tcore5",
+		"cpu0 Tcore6",
+		"cpu0 Tcore7",
+		"cpu0 Tcore8",
+		"cpu0 Tcore9",
+		"cpu0 Tcore10",
+		"cpu0 Tcore11",
+		"cpu0 Tcore12",
+		"cpu0 Tgfx",
 	},
 	{
 		"cpu1 Tdie",
@@ -518,69 +616,130 @@ static const char *zenpower_temp_label[][10] = {
 		"cpu1 Tccd6",
 		"cpu1 Tccd7",
 		"cpu1 Tccd8",
+		"cpu1 Tcore1",
+		"cpu1 Tcore2",
+		"cpu1 Tcore3",
+		"cpu1 Tcore4",
+		"cpu1 Tcore5",
+		"cpu1 Tcore6",
+		"cpu1 Tcore7",
+		"cpu1 Tcore8",
+		"cpu1 Tcore9",
+		"cpu1 Tcore10",
+		"cpu1 Tcore11",
+		"cpu1 Tcore12",
+		"cpu1 Tgfx",
 	}
 };
 
-static const char *zenpower_in_label[][3] = {
+static const char *zenpower_in_label[][16] = {
 	{
 		"",
 		"SVI2_Core",
 		"SVI2_SoC",
+		"Vcore1",
+		"Vcore2",
+		"Vcore3",
+		"Vcore4",
+		"Vcore5",
+		"Vcore6",
+		"Vcore7",
+		"Vcore8",
+		"Vcore9",
+		"Vcore10",
+		"Vcore11",
+		"Vcore12",
+		"Vgfx",
 	},
 	{
 		"",
 		"cpu0 SVI2_Core",
 		"cpu0 SVI2_SoC",
+		"cpu0 Vcore1",
+		"cpu0 Vcore2",
+		"cpu0 Vcore3",
+		"cpu0 Vcore4",
+		"cpu0 Vcore5",
+		"cpu0 Vcore6",
+		"cpu0 Vcore7",
+		"cpu0 Vcore8",
+		"cpu0 Vcore9",
+		"cpu0 Vcore10",
+		"cpu0 Vcore11",
+		"cpu0 Vcore12",
+		"cpu0 Vgfx",
 	},
 	{
 		"",
 		"cpu1 SVI2_Core",
 		"cpu1 SVI2_SoC",
+		"cpu1 Vcore1",
+		"cpu1 Vcore2",
+		"cpu1 Vcore3",
+		"cpu1 Vcore4",
+		"cpu1 Vcore5",
+		"cpu1 Vcore6",
+		"cpu1 Vcore7",
+		"cpu1 Vcore8",
+		"cpu1 Vcore9",
+		"cpu1 Vcore10",
+		"cpu1 Vcore11",
+		"cpu1 Vcore12",
+		"cpu1 Vgfx",
 	}
 };
 
-static const char *zenpower_curr_label[][2] = {
+static const char *zenpower_curr_label[][3] = {
 	{
 		"SVI2_C_Core",
 		"SVI2_C_SoC",
+		"Igfx",
 	},
 	{
 		"cpu0 SVI2_C_Core",
 		"cpu0 SVI2_C_SoC",
+		"cpu0 Igfx",
 	},
 	{
 		"cpu1 SVI2_C_Core",
 		"cpu1 SVI2_C_SoC",
+		"cpu1 Igfx",
 	}
 };
 
-static const char *zenpower_power_label[][2] = {
+static const char *zenpower_power_label[][3] = {
 	{
 		"SVI2_P_Core",
 		"SVI2_P_SoC",
+		"SMU_P_SoC",
 	},
 	{
 		"cpu0 SVI2_P_Core",
 		"cpu0 SVI2_P_SoC",
+		"cpu0 SMU_P_SoC",
 	},
 	{
 		"cpu1 SVI2_P_Core",
 		"cpu1 SVI2_P_SoC",
+		"cpu1 SMU_P_SoC",
 	}
 };
 
-static const char *zenpower_power_label_zen5[][2] = {
+static const char *zenpower_power_label_rapl[][3] = {
 	{
 		"RAPL_P_Package",
 		"RAPL_P_Core",
+		"SMU_P_SoC",
 	},
 	{
 		"cpu0 RAPL_P_Package",
 		"cpu0 RAPL_P_Core",
+		"cpu0 SMU_P_SoC",
 	},
 	{
 		"cpu1 RAPL_P_Package",
 		"cpu1 RAPL_P_Core",
+		"cpu1 SMU_P_SoC",
 	}
 };
 
@@ -609,8 +768,8 @@ static int zenpower_read_labels(struct device *dev,
 			break;
 		case hwmon_power:
 			data = dev_get_drvdata(dev);
-			if (data->zen5) {
-				*str = zenpower_power_label_zen5[i][channel];
+			if (data->rapl) {
+				*str = zenpower_power_label_rapl[i][channel];
 			} else {
 				*str = zenpower_power_label[i][channel];
 			}
@@ -638,6 +797,22 @@ static void nb_index_read(struct pci_dev *pdev, u16 node_id, u32 address, u32 *r
 	mutex_unlock(&nb_smu_ind_mutex);
 }
 
+/* amd_smn_write() appeared in kernel 6.1; older kernels use nb_index_write */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+static void kernel_smn_write(struct pci_dev *pdev, u16 node_id, u32 address, u32 value)
+{
+	amd_smn_write(node_id, address, value);
+}
+#endif
+
+static void nb_index_write(struct pci_dev *pdev, u16 node_id, u32 address, u32 value)
+{
+	mutex_lock(&nb_smu_ind_mutex);
+	pci_bus_write_config_dword(pdev->bus, PCI_DEVFN(0, 0), 0x60, address);
+	pci_bus_write_config_dword(pdev->bus, PCI_DEVFN(0, 0), 0x64, value);
+	mutex_unlock(&nb_smu_ind_mutex);
+}
+
 static const struct hwmon_channel_info *zenpower_info[] = {
 	HWMON_CHANNEL_INFO(temp,
 			HWMON_T_INPUT | HWMON_T_MAX | HWMON_T_LABEL,	// Tdie
@@ -649,7 +824,20 @@ static const struct hwmon_channel_info *zenpower_info[] = {
 			HWMON_T_INPUT | HWMON_T_LABEL,					// Tccd5
 			HWMON_T_INPUT | HWMON_T_LABEL,					// Tccd6
 			HWMON_T_INPUT | HWMON_T_LABEL,					// Tccd7
-			HWMON_T_INPUT | HWMON_T_LABEL),					// Tccd8
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tccd8
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore1 (SMU PM)
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore2
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore3
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore4
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore5
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore6
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore7
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore8
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore9
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore10
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore11
+			HWMON_T_INPUT | HWMON_T_LABEL,					// Tcore12
+			HWMON_T_INPUT | HWMON_T_LABEL),					// Tgfx (SMU PM)
 
 	HWMON_CHANNEL_INFO(in,
 			HWMON_I_LABEL,	// everything is using 1 based indexing except
@@ -657,15 +845,30 @@ static const struct hwmon_channel_info *zenpower_info[] = {
 							// let's make fake item so corresponding SVI2 data is
 							// associated with same index
 			HWMON_I_INPUT | HWMON_I_LABEL,		// Core Voltage (SVI2)
-			HWMON_I_INPUT | HWMON_I_LABEL),		// SoC Voltage (SVI2)
+			HWMON_I_INPUT | HWMON_I_LABEL,		// SoC Voltage (SVI2)
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore1 (SMU PM)
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore2
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore3
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore4
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore5
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore6
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore7
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore8
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore9
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore10
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore11
+			HWMON_I_INPUT | HWMON_I_LABEL,		// Vcore12
+			HWMON_I_INPUT | HWMON_I_LABEL),		// Vgfx (SMU PM)
 
 	HWMON_CHANNEL_INFO(curr,
 			HWMON_C_INPUT | HWMON_C_LABEL,		// Core Current (SVI2)
-			HWMON_C_INPUT | HWMON_C_LABEL),		// SoC Current (SVI2)
+			HWMON_C_INPUT | HWMON_C_LABEL,		// SoC Current (SVI2)
+			HWMON_C_INPUT | HWMON_C_LABEL),		// Igfx (SMU PM)
 
 	HWMON_CHANNEL_INFO(power,
-			HWMON_P_INPUT | HWMON_P_LABEL,		// Core Power (SVI2)
-			HWMON_P_INPUT | HWMON_P_LABEL),		// SoC Power (SVI2)
+			HWMON_P_INPUT | HWMON_P_LABEL,		// Core Power (SVI2) / RAPL Package
+			HWMON_P_INPUT | HWMON_P_LABEL,		// SoC Power (SVI2) / RAPL Core
+			HWMON_P_INPUT | HWMON_P_LABEL),		// SMU_P_SoC (SMU PM)
 
 	NULL
 };
@@ -725,11 +928,13 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
+	pci_set_drvdata(pdev, data);
 
 	data->zen2 = false;
 	data->pdev = pdev;
 	data->temp_offset = 0;
 	data->read_amdsmn_addr = nb_index_read;
+	data->write_amdsmn_addr = nb_index_write;
 	data->kernel_smn_support = false;
 	data->svi_core_addr = false;
 	data->svi_soc_addr = false;
@@ -745,6 +950,9 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		if (pdev->vendor == misc->vendor && pdev->device == misc->device) {
 			data->kernel_smn_support = true;
 			data->read_amdsmn_addr = kernel_smn_read;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+			data->write_amdsmn_addr = kernel_smn_write;
+#endif
 			data->node_id = amd_pci_dev_to_node_id(pdev);
 			break;
 		}
@@ -780,6 +988,8 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		/* Apply base configuration from table */
 		data->svi_core_addr = config->svi_core_addr;
 		data->svi_soc_addr = config->svi_soc_addr;
+		data->ccd_temp_base = config->ccd_temp_base;
+		data->rapl = (config->flags & ZEN_CFG_RAPL) != 0;
 		data->amps_visible = true;
 		ccd_check = config->num_ccds;
 
@@ -808,6 +1018,17 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			}
 		}
 
+		/* SMU PM table backend */
+		mutex_init(&data->smu_lock);
+		if (config->flags & ZEN_CFG_SMU_PM_TABLE) {
+			if (zenpower_smu_init(data, dev)) {
+				dev_warn(dev, "SMU PM table unavailable, extra sensors disabled\n");
+				data->smu_available = false;
+			} else {
+				dev_info(dev, "  Per-core/SoC/GFX sensors: SMU PM table\n");
+			}
+		}
+
 		/* Handle multinode configuration (Threadripper/EPYC) */
 		if (config->flags & ZEN_CFG_MULTINODE) {
 			if (multinode && node_of_cpu == 0) {
@@ -824,7 +1045,9 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		/* Log configured measurement backends */
 		dev_info(dev, "Measurement methods:\n");
 		if (config->flags & ZEN_CFG_RAPL) {
-			dev_info(dev, "  Power: RAPL MSRs (Package only)\n");
+			dev_info(dev, "  Power: RAPL MSRs (%s)\n",
+				(config->flags & ZEN_CFG_NO_RAPL_CORE) ?
+				"Package only" : "Package + Core");
 		} else {
 			dev_info(dev, "  Power: SVI2 via SMN (Core + SoC)\n");
 		}
@@ -846,7 +1069,7 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	for (i = 0; i < ccd_check; i++) {
-		u32 ccd_addr = data->zen5 ? F1AH_M70H_CCD_TEMP(i) : F17H_M70H_CCD_TEMP(i);
+		u32 ccd_addr = data->ccd_temp_base + (i * 4);
 		data->read_amdsmn_addr(pdev, data->node_id, ccd_addr, &val);
 		/* Check valid bit (BIT(11)) per k10temp driver */
 		if (val & BIT(11)) {
@@ -868,7 +1091,17 @@ static int zenpower_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		dev, "zenpower", data, &zenpower_chip_info, zenpower_groups
 	);
 
-	return PTR_ERR_OR_ZERO(hwmon_dev);
+	if (IS_ERR(hwmon_dev)) {
+		/* ioremap_cache is not devm-managed */
+		if (data->smu_virt) {
+			iounmap(data->smu_virt);
+			data->smu_virt = NULL;
+		}
+		mutex_destroy(&data->smu_lock);
+		return PTR_ERR(hwmon_dev);
+	}
+
+	return 0;
 }
 
 static const struct pci_device_id zenpower_id_table[] = {
@@ -881,15 +1114,31 @@ static const struct pci_device_id zenpower_id_table[] = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_19H_M40H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_19H_M50H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M70H_DF_F3) },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M20H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_1AH_M40H_DF_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, zenpower_id_table);
 
+static void zenpower_remove(struct pci_dev *pdev)
+{
+	struct zenpower_data *data = pci_get_drvdata(pdev);
+
+	if (!data)
+		return;
+
+	if (data->smu_virt) {
+		iounmap(data->smu_virt);
+		data->smu_virt = NULL;
+	}
+	mutex_destroy(&data->smu_lock);
+}
+
 static struct pci_driver zenpower_driver = {
 	.name = "zenpower",
 	.id_table = zenpower_id_table,
 	.probe = zenpower_probe,
+	.remove = zenpower_remove,
 };
 
 module_pci_driver(zenpower_driver);

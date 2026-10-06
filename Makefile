@@ -1,4 +1,4 @@
-VERSION         := 0.5.0
+VERSION         := 0.5.2
 TARGET          := $(shell uname -r)
 DKMS_ROOT_PATH  := /usr/src/zenpower-$(VERSION)
 
@@ -26,7 +26,7 @@ endif
 
 obj-m	:= $(patsubst %,%.o,zenpower)
 obj-ko	:= $(patsubst %,%.ko,zenpower)
-zenpower-objs := zenpower_core.o zenpower_svi2.o zenpower_rapl.o zenpower_temp.o
+zenpower-objs := zenpower_core.o zenpower_svi2.o zenpower_rapl.o zenpower_temp.o zenpower_smu.o
 
 .PHONY: all modules clean dkms-install dkms-install-swapped dkms-uninstall
 
@@ -48,6 +48,7 @@ dkms-install:
 	cp $(CURDIR)/zenpower_svi2.c $(DKMS_ROOT_PATH)
 	cp $(CURDIR)/zenpower_rapl.c $(DKMS_ROOT_PATH)
 	cp $(CURDIR)/zenpower_temp.c $(DKMS_ROOT_PATH)
+	cp $(CURDIR)/zenpower_smu.c $(DKMS_ROOT_PATH)
 
 	sed -e "s/@CFLGS@/${MCFLAGS}/" \
 	    -e "s/@VERSION@/$(VERSION)/" \

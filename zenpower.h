@@ -10,6 +10,7 @@
 #include <linux/pci.h>
 #include <linux/hwmon.h>
 #include <linux/ktime.h>
+#include <linux/mutex.h>
 
 /* CPU model configuration flags */
 #define ZEN_CFG_ZEN2_CALC    BIT(0)  /* Use Zen2+ current formula */
@@ -17,6 +18,7 @@
 #define ZEN_CFG_RAPL         BIT(2)  /* Use RAPL for power monitoring */
 #define ZEN_CFG_IS_ZEN5      BIT(3)  /* Zen 5 architecture */
 #define ZEN_CFG_NO_RAPL_CORE BIT(4)  /* RAPL Core power unavailable/meaningless */
+#define ZEN_CFG_SMU_PM_TABLE BIT(5)  /* SMU PM table backend (Strix Point) */
 
 /* CPU model configuration entry */
 struct zenpower_model_config {
@@ -34,14 +36,17 @@ struct zenpower_model_config {
 struct zenpower_data {
 	struct pci_dev *pdev;
 	void (*read_amdsmn_addr)(struct pci_dev *pdev, u16 node_id, u32 address, u32 *regval);
+	void (*write_amdsmn_addr)(struct pci_dev *pdev, u16 node_id, u32 address, u32 value);
 	u32 svi_core_addr;
 	u32 svi_soc_addr;
+	u32 ccd_temp_base;      /* Base SMN address for CCD temperature registers */
 	u16 node_id;
 	u8 cpu_id;
 	u8 nodes_per_cpu;
 	int temp_offset;
 	bool zen2;
 	bool zen5;
+	bool rapl;              /* Power monitoring via RAPL energy MSRs */
 	bool kernel_smn_support;
 	bool amps_visible;
 	bool ccd_visible[8];
@@ -53,6 +58,14 @@ struct zenpower_data {
 	bool rapl_available[2];
 	u32 rapl_energy_unit;
 	bool rapl_initialized;
+
+	/* SMU PM table backend (Strix Point) */
+	bool smu_available;
+	u64 smu_dram_base;
+	void __iomem *smu_virt;
+	u32 *smu_table;             /* latest snapshot, 0xD54 bytes */
+	unsigned long smu_jiffies;  /* last successful transfer */
+	struct mutex smu_lock;
 };
 
 /* SVI2 backend functions */
@@ -67,5 +80,13 @@ int zenpower_rapl_read_power(struct zenpower_data *data, int channel, long *val)
 /* Temperature backend functions */
 unsigned int zenpower_temp_get_ccd(struct zenpower_data *data, u32 ccd_addr);
 unsigned int zenpower_temp_get_ctl(struct zenpower_data *data);
+
+/* SMU PM table backend functions (Strix Point) */
+int zenpower_smu_init(struct zenpower_data *data, struct device *dev);
+int zenpower_smu_update(struct zenpower_data *data);
+long zenpower_smu_read_temp(struct zenpower_data *data, int channel);
+long zenpower_smu_read_in(struct zenpower_data *data, int channel);
+long zenpower_smu_read_curr(struct zenpower_data *data, int channel);
+long zenpower_smu_read_power(struct zenpower_data *data, int channel);
 
 #endif /* ZENPOWER_H */

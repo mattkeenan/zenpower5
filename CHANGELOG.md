@@ -4,6 +4,28 @@ All notable changes to zenpower5 will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.2] - 2026-10-06
+
+Version 0.5.1 was skipped: it is reserved for the Zen 4 work (zen4-support branch).
+
+### Added
+
+- **SMU PM table backend (Strix Point):** per-core temperature/voltage (12 cores), GFX voltage/current, SoC power fetched via the SMU mailbox (PM table 0x5D0009); new `zenpower_smu.c` backend, hidden automatically when the table is unavailable
+- **Zen 5 Strix Point Support:** AMD Family 1Ah Model 24h (Strix Point - Ryzen AI 300 series, Z2 Extreme)
+  - Binds Data Fabric F3 PCI ID 0x16fb (1AH M20h DF F3)
+  - Tctl/Tdie temperatures and RAPL package power
+  - SVI3 voltage/current and per-CCD SMN layout unavailable on Zen 5 mobile - sensors hidden rather than reporting garbage (same rationale as Strix Halo upstream issue #10)
+
+### Fixed
+
+- **RAPL-gated power visibility:** package power is no longer hidden when SVI planes are disabled but RAPL is in use (common fix shared with the zen4-support branch)
+- **Kernel 6.13+ build:** `cpuid_ecx()` moved out of `asm/processor.h`; include `asm/cpuid/api.h`/`asm/cpuid.h` via `__has_include`
+
+### Changed
+
+- **Per-model CCD base and RAPL plumbing (common with zen4 work):** CCD temperature reads use the per-model `ccd_temp_base` from the config table and the RAPL power path is selected by config flag instead of a hardcoded Zen 5 check
+- **Version:** bumped to 0.5.2
+
 ## [0.5.0] - 2025-11-30
 
 ### Added
