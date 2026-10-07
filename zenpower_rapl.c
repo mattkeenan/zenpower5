@@ -3,7 +3,7 @@
  * zenpower - RAPL (Running Average Power Limit) backend
  *
  * RAPL provides power measurements via MSR energy counters.
- * Used by Zen 5.
+ * Used by Zen 4 (SVI2 telemetry is not updated on Raphael) and Zen 5.
  *
  * Power is calculated from energy delta between reads divided by time delta.
  */

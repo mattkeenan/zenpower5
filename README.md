@@ -7,6 +7,7 @@ This is a structural update to the [zenpower3](https://github.com/AliEmreSenel/z
 ## What's New in Zenpower5
 
 - **Zen 5 Support:** Full support for Zen 5 CPUs (Strix Halo) using RAPL power monitoring
+- **Zen 4 Support:** Raphael/Dragon Range (Family 19h Model 61h) - temperatures and RAPL package power
 - **Multi-File Architecture:** Clean separation of SVI2, RAPL, and temperature backends for better maintainability
 - **CPU Model Quirks System:** Data-driven configuration table replacing nested switch statements
 - **Fixed CCD Temperature Formula:** Corrected bugs in CCD temperature calculations affecting all Zen generations
@@ -19,7 +20,8 @@ This is a structural update to the [zenpower3](https://github.com/AliEmreSenel/z
 - **Zen+** (Family 17h, Model 08h, 18h) - Ryzen 2000 APU series
 - **Zen 2** (Family 17h, Model 31h, 60h, 71h) - Ryzen 3000 series, Threadripper 3000, EPYC 7002
 - **Zen 3** (Family 19h, Model 00h, 01h, 21h, 50h) - Ryzen 5000 series, Threadripper Pro, EPYC 7003
-- **Zen 5** (Family 1Ah, Model 70h-7Fh) - Strix Halo (Ryzen AI Max+)
+- **Zen 4** (Family 19h, Model 61h) - Ryzen 7000 series, Dragon Range; Tctl/Tdie/Tccd temperatures and RAPL package power (SVI2 voltage/current unavailable - the SMU does not update its telemetry planes on these CPUs)
+- **Zen 5** (Family 1Ah, Model 44h, 70h-7Fh) - Granite Ridge, Strix Halo (Ryzen AI Max+)
 
 ## Installation
 

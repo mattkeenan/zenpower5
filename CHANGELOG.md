@@ -4,6 +4,21 @@ All notable changes to zenpower5 will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.1] - 2026-10-05
+
+### Added
+
+- **Zen 4 Support:** AMD Family 19h Model 61h (Raphael desktop / Dragon Range - Ryzen 7000/8000 series)
+  - Tctl/Tdie and CCD temperatures (CCD base 0x59b08, per k10temp 19h M60h-7Fh offset 0x308)
+  - RAPL package power via MSR 0xc001029b (per-core energy MSR is hidden: reading it without CPU affinity pinning yields inconsistent values)
+  - SVI2 voltage/current unavailable on Zen 4 - the SMU does not update the SVI telemetry planes on Raphael (same treatment as LibreHardwareMonitor for Ryzen 7000)
+
+### Fixed
+
+- **Tctl/Tdie 49 °C offset:** now also applied when TJ_SEL[17:16] = 11, matching k10temp; previously Tctl could read up to 49 °C too high on parts that signal the adjustment via TJ_SEL instead of RANGE_SEL
+- **PCI device ID labelling:** 0x14e3 is `AMD_19H_M60H_DF_F3` (Zen 4 Raphael DF F3; Zen 5 Granite Ridge presents the same ID), previously mislabelled as 1AH_M40H
+- **Per-model CCD base and RAPL plumbing:** CCD temperature base now comes from the model config table and the RAPL power path is selected by config flag instead of a hardcoded Zen 5 check
+
 ## [0.5.0] - 2025-11-30
 
 ### Added

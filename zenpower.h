@@ -36,12 +36,14 @@ struct zenpower_data {
 	void (*read_amdsmn_addr)(struct pci_dev *pdev, u16 node_id, u32 address, u32 *regval);
 	u32 svi_core_addr;
 	u32 svi_soc_addr;
+	u32 ccd_temp_base;      /* Base SMN address for CCD temperature registers */
 	u16 node_id;
 	u8 cpu_id;
 	u8 nodes_per_cpu;
 	int temp_offset;
 	bool zen2;
 	bool zen5;
+	bool rapl;              /* Power monitoring via RAPL energy MSRs */
 	bool kernel_smn_support;
 	bool amps_visible;
 	bool ccd_visible[8];

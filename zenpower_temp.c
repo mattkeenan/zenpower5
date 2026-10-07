@@ -12,6 +12,9 @@
 
 #define F17H_M01H_REPORTED_TEMP_CTRL        0x00059800
 #define F17H_TEMP_ADJUST_MASK               0x80000
+/* Newer Zen parts can signal the 49 C adjustment through TJ_SEL[17:16]
+ * as well as RANGE_SEL[19] (k10temp ZEN_CUR_TEMP_TJ_SEL_MASK) */
+#define F17H_TEMP_TJ_SEL_MASK               0x30000
 #define ZEN_CCD_TEMP_VALID                  BIT(11)
 #define ZEN_CCD_TEMP_MASK                   0x7ff  /* GENMASK(10, 0) */
 
@@ -23,7 +26,8 @@ unsigned int zenpower_temp_get_ctl(struct zenpower_data *data)
 	data->read_amdsmn_addr(data->pdev, data->node_id,
 							F17H_M01H_REPORTED_TEMP_CTRL, &regval);
 	temp = (regval >> 21) * 125;
-	if (regval & F17H_TEMP_ADJUST_MASK)
+	if ((regval & F17H_TEMP_ADJUST_MASK) ||
+	    (regval & F17H_TEMP_TJ_SEL_MASK) == F17H_TEMP_TJ_SEL_MASK)
 		temp -= 49000;
 	return temp;
 }
